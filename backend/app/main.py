@@ -3,6 +3,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from backend.app.evaluation import EvaluationCriterion, evaluate_criteria
 from backend.app.ollama_client import generate_chat_response
 
 app = FastAPI(
@@ -61,4 +62,21 @@ async def chat(request: ChatRequest) -> dict[str, str]:
         ) from exc
 
     return {"response": answer}
+
+
+class EvaluateRequest(BaseModel):
+    task_id: str = Field(min_length=1, max_length=100)
+    summary: str = Field(min_length=1, max_length=1000)
+    criteria: list[EvaluationCriterion] = Field(min_length=1)
+
+
+@app.post("/evaluate")
+def evaluate(request: EvaluateRequest):
+    """Evaluate supplied criteria and return a structured result."""
+    return evaluate_criteria(
+        task_id=request.task_id,
+        criteria=request.criteria,
+        summary=request.summary,
+    )
+
 
