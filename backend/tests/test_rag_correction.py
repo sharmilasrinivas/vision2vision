@@ -5,10 +5,18 @@ from unittest.mock import AsyncMock
 import pytest
 
 import backend.app.rag_correction as rag_module
+from backend.app.evaluation import EvaluationCriterion, evaluate_criteria
+from backend.app.history_store import (
+    get_recent_evaluations,
+)
+from backend.app.history_store import (
+    save_evaluation as real_save_evaluation,
+)
 from backend.app.rag_correction import (
     build_failure_context,
     recommend_correction,
     retrieve_and_recommend_correction,
+    run_correction_workflow,
 )
 
 
@@ -235,3 +243,116 @@ async def test_orchestration_works_without_historical_failures(
     assert result["recommendation"]["corrected_output"] == (
         "A revised output."
     )
+
+
+@pytest.mark.asyncio
+async def test_workflow_accepts_output_and_persists_evaluation(
+    monkeypatch, tmp_path
+):
+    db_path = tmp_path / "workflow.db"
+
+    async def fake_evaluate(request):
+        return evaluate_criteria(
+            task_id=request.task_id,
+            criteria=[
+                EvaluationCriterion(
+                    name="Clarity",
+                    passed=True,
+                    explanation="The output is clear.",
+                )
+            ],
+            summary="Mock evaluation for workflow testing.",
+        )
+
+    monkeypatch.setattr(
+        rag_module,
+        "evaluate_text_output",
+        fake_evaluate,
+    )
+    monkeypatch.setattr(
+        rag_module,
+        "save_evaluation",
+        lambda **kwargs: real_save_evaluation(
+            **kwargs,
+            db_path=db_path,
+        ),
+    )
+
+    result = await run_correction_workflow(
+        task_id="workflow-success",
+        task_description="Write a clear description.",
+        generated_output="A clear description.",
+        criteria_names=["Clarity"],
+        max_retries=2,
+    )
+
+    assert result["final_decision"] == "pass"
+    assert result["final_output"] == "A clear description."
+    assert result["attempts_used"] == 0
+    assert len(result["history"]) == 1
+
+    records = get_recent_evaluations(limit=10, db_path=db_path)
+    assert len(records) == 1
+    assert records[0]["task_id"] == "workflow-success-attempt-0"
+
+
+@pytest.mark.asyncio
+async def test_workflow_stops_after_retry_limit(
+    monkeypatch, tmp_path
+):
+    db_path = tmp_path / "workflow-retries.db"
+
+    async def fake_evaluate(request):
+        return evaluate_criteria(
+            task_id=request.task_id,
+            criteria=[
+                EvaluationCriterion(
+                    name="Accuracy",
+                    passed=False,
+                    explanation="The output is inaccurate.",
+                )
+            ],
+            summary="Mock evaluation for workflow testing.",
+        )
+
+    async def fake_correction(**kwargs):
+        return {
+            "recommendation": {
+                "corrected_output": "Another attempted correction.",
+                "explanation": "Attempted to address accuracy.",
+            }
+        }
+
+    monkeypatch.setattr(
+        rag_module,
+        "evaluate_text_output",
+        fake_evaluate,
+    )
+    monkeypatch.setattr(
+        rag_module,
+        "retrieve_and_recommend_correction",
+        fake_correction,
+    )
+    monkeypatch.setattr(
+        rag_module,
+        "save_evaluation",
+        lambda **kwargs: real_save_evaluation(
+            **kwargs,
+            db_path=db_path,
+        ),
+    )
+
+    result = await run_correction_workflow(
+        task_id="workflow-retries",
+        task_description="Write an accurate answer.",
+        generated_output="An inaccurate answer.",
+        criteria_names=["Accuracy"],
+        max_retries=2,
+    )
+
+    assert result["final_decision"] == "fail"
+    assert result["attempts_used"] == 2
+    assert len(result["history"]) == 3
+
+    records = get_recent_evaluations(limit=10, db_path=db_path)
+    assert len(records) == 3

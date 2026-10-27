@@ -6,6 +6,11 @@ from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError
 
+from backend.app.history_store import save_evaluation
+from backend.app.llm_evaluator import (
+    LLMEvaluationRequest,
+    evaluate_text_output,
+)
 from backend.app.ollama_client import generate_chat_response
 from backend.app.semantic_retrieval import retrieve_semantic_failures
 
@@ -168,4 +173,87 @@ async def retrieve_and_recommend_correction(
             }
             for failure in failures
         ],
+    }
+
+
+async def run_correction_workflow(
+    task_id: str,
+    task_description: str,
+    generated_output: str,
+    criteria_names: list[str],
+    max_retries: int = 2,
+) -> dict[str, Any]:
+    """Evaluate, correct, and reevaluate an output with bounded retries."""
+
+    if not task_id.strip():
+        raise ValueError("Task ID must not be empty.")
+
+    if not 0 <= max_retries <= 3:
+        raise ValueError("max_retries must be between 0 and 3.")
+
+    current_output = generated_output
+    evaluation_history: list[dict[str, Any]] = []
+
+    for attempt in range(max_retries + 1):
+        evaluation = await evaluate_text_output(
+            LLMEvaluationRequest(
+                task_id=f"{task_id}-attempt-{attempt}",
+                task_description=task_description,
+                generated_output=current_output,
+                criteria_names=criteria_names,
+            )
+        )
+
+        save_evaluation(
+            task_id=f"{task_id}-attempt-{attempt}",
+            task_description=task_description,
+            generated_output=current_output,
+            criteria=[
+                criterion.model_dump()
+                for criterion in evaluation.criteria
+            ],
+            score=evaluation.score,
+            decision=evaluation.decision,
+        )
+
+        evaluation_history.append(
+            {
+                "attempt": attempt,
+                "generated_output": current_output,
+                "score": evaluation.score,
+                "decision": evaluation.decision,
+                "criteria": [
+                    criterion.model_dump()
+                    for criterion in evaluation.criteria
+                ],
+            }
+        )
+
+        if evaluation.overall_passed:
+            return {
+                "task_id": task_id,
+                "final_output": current_output,
+                "final_decision": evaluation.decision,
+                "attempts_used": attempt,
+                "retry_limit": max_retries,
+                "history": evaluation_history,
+            }
+
+        if attempt == max_retries:
+            break
+
+        correction = await retrieve_and_recommend_correction(
+            task_description=task_description,
+            generated_output=current_output,
+            criteria_names=criteria_names,
+        )
+        current_output = correction["recommendation"]["corrected_output"]
+
+    return {
+        "task_id": task_id,
+        "final_output": current_output,
+        "final_decision": "fail",
+        "attempts_used": max_retries,
+        "retry_limit": max_retries,
+        "history": evaluation_history,
     }
