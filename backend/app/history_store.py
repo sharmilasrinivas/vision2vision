@@ -76,3 +76,38 @@ def save_evaluation(
             ),
         )
         return int(cursor.lastrowid)
+
+
+def get_recent_evaluations(
+    limit: int = 10,
+    db_path: str | Path = DEFAULT_DB_PATH,
+) -> list[dict[str, Any]]:
+    """Return recent evaluation records, newest first."""
+    if not 1 <= limit <= 100:
+        raise ValueError("Limit must be between 1 and 100.")
+
+    path = Path(db_path)
+
+    if not path.exists():
+        return []
+
+    with sqlite3.connect(path) as connection:
+        connection.row_factory = sqlite3.Row
+        rows = connection.execute(
+            """
+            SELECT id, task_id, task_description, generated_output,
+                   criteria_json, score, decision, created_at
+            FROM evaluation_history
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+
+    records = []
+    for row in rows:
+        record = dict(row)
+        record["criteria"] = json.loads(record.pop("criteria_json"))
+        records.append(record)
+
+    return records

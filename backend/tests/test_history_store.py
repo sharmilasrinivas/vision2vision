@@ -5,6 +5,7 @@ import sqlite3
 import pytest
 
 from backend.app.history_store import (
+    get_recent_evaluations,
     initialize_history_db,
     save_evaluation,
 )
@@ -92,3 +93,44 @@ def test_save_evaluation_rejects_invalid_decision(tmp_path):
             decision="unknown",
             db_path=tmp_path / "test_history.db",
         )
+
+
+def test_get_recent_evaluations_returns_newest_first(tmp_path):
+    db_path = tmp_path / "test_history.db"
+
+    for index in range(3):
+        save_evaluation(
+            task_id=f"history-{index}",
+            task_description="Test task",
+            generated_output=f"Output {index}",
+            criteria=[
+                {
+                    "name": "Requirement met",
+                    "passed": index == 2,
+                    "explanation": "Test explanation.",
+                }
+            ],
+            score=index / 2,
+            decision="pass" if index == 2 else "fail",
+            db_path=db_path,
+        )
+
+    records = get_recent_evaluations(limit=2, db_path=db_path)
+
+    assert len(records) == 2
+    assert records[0]["task_id"] == "history-2"
+    assert records[1]["task_id"] == "history-1"
+    assert isinstance(records[0]["criteria"], list)
+
+
+def test_get_recent_evaluations_returns_empty_for_missing_db(tmp_path):
+    records = get_recent_evaluations(
+        db_path=tmp_path / "missing.db"
+    )
+
+    assert records == []
+
+
+def test_get_recent_evaluations_rejects_invalid_limit():
+    with pytest.raises(ValueError, match="Limit must be"):
+        get_recent_evaluations(limit=0)
