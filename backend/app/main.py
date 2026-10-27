@@ -14,6 +14,7 @@ from backend.app.llm_evaluator import (
     evaluate_text_output,
 )
 from backend.app.ollama_client import generate_chat_response
+from backend.app.semantic_retrieval import retrieve_semantic_failures
 
 app = FastAPI(
     title="Voice2Vision Guardian API",
@@ -84,6 +85,12 @@ class FailureRetrievalRequest(BaseModel):
     limit: int = Field(default=5, ge=1, le=100)
 
 
+class SemanticFailureRetrievalRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=2000)
+    limit: int = Field(default=5, ge=1, le=100)
+    min_similarity: float = Field(default=0.25, ge=0.0, le=1.0)
+
+
 @app.post("/evaluate")
 def evaluate(request: EvaluateRequest):
     """Evaluate supplied criteria and persist the result."""
@@ -149,6 +156,24 @@ def retrieve_failures(request: FailureRetrievalRequest):
         return retrieve_similar_failures(
             query=request.query,
             limit=request.limit,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=str(exc),
+        ) from exc
+
+
+@app.post("/retrieve-semantic-failures")
+def retrieve_semantic_failures_endpoint(
+    request: SemanticFailureRetrievalRequest,
+):
+    """Retrieve past failed evaluations using semantic similarity."""
+    try:
+        return retrieve_semantic_failures(
+            query=request.query,
+            limit=request.limit,
+            min_similarity=request.min_similarity,
         )
     except ValueError as exc:
         raise HTTPException(
