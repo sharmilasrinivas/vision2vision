@@ -3,8 +3,6 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
-
 from pydantic import BaseModel, Field, model_validator
 
 
@@ -61,3 +59,28 @@ class EvaluationResult(BaseModel):
                 )
 
         return self
+
+
+def evaluate_criteria(
+    task_id: str,
+    criteria: list[EvaluationCriterion],
+    summary: str,
+) -> EvaluationResult:
+    """Calculate an evaluation score and choose a next action."""
+
+    if not criteria:
+        raise ValueError("At least one evaluation criterion is required.")
+
+    passed_count = sum(criterion.passed for criterion in criteria)
+    score = passed_count / len(criteria)
+    overall_passed = passed_count == len(criteria)
+
+    return EvaluationResult(
+        task_id=task_id,
+        overall_passed=overall_passed,
+        score=score,
+        decision="pass" if overall_passed else "fail",
+        summary=summary,
+        criteria=criteria,
+        suggested_action="accept" if overall_passed else "retry",
+    )

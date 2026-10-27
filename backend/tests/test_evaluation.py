@@ -2,7 +2,11 @@
 import pytest
 from pydantic import ValidationError
 
-from backend.app.evaluation import EvaluationCriterion, EvaluationResult
+from backend.app.evaluation import (
+    EvaluationCriterion,
+    EvaluationResult,
+    evaluate_criteria,
+)
 
 
 def test_evaluation_criterion_valid():
@@ -105,4 +109,66 @@ def test_review_requires_human_review_action():
                 )
             ],
             suggested_action="retry",
+        )
+
+
+
+def test_evaluate_criteria_all_pass():
+    criteria = [
+        EvaluationCriterion(
+            name="Object present",
+            passed=True,
+            explanation="The requested object is present.",
+        ),
+        EvaluationCriterion(
+            name="Style correct",
+            passed=True,
+            explanation="The requested style is satisfied.",
+        ),
+    ]
+
+    result = evaluate_criteria(
+        task_id="task-101",
+        criteria=criteria,
+        summary="All requirements passed.",
+    )
+
+    assert result.score == 1.0
+    assert result.overall_passed is True
+    assert result.decision == "pass"
+    assert result.suggested_action == "accept"
+
+
+def test_evaluate_criteria_partial_failure():
+    criteria = [
+        EvaluationCriterion(
+            name="Object present",
+            passed=True,
+            explanation="The object is present.",
+        ),
+        EvaluationCriterion(
+            name="Style correct",
+            passed=False,
+            explanation="The style does not match.",
+        ),
+    ]
+
+    result = evaluate_criteria(
+        task_id="task-102",
+        criteria=criteria,
+        summary="One requirement failed.",
+    )
+
+    assert result.score == 0.5
+    assert result.overall_passed is False
+    assert result.decision == "fail"
+    assert result.suggested_action == "retry"
+
+
+def test_evaluate_criteria_rejects_empty_list():
+    with pytest.raises(ValueError, match="At least one"):
+        evaluate_criteria(
+            task_id="task-103",
+            criteria=[],
+            summary="Nothing to evaluate.",
         )
