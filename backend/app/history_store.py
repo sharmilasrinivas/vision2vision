@@ -111,3 +111,66 @@ def get_recent_evaluations(
         records.append(record)
 
     return records
+
+
+
+def retrieve_similar_failures(
+    query: str,
+    limit: int = 5,
+    db_path: str | Path = DEFAULT_DB_PATH,
+) -> list[dict[str, Any]]:
+    """Retrieve past failed evaluations relevant to a text query."""
+    if not query.strip():
+        raise ValueError("Query must not be empty.")
+
+    if not 1 <= limit <= 100:
+        raise ValueError("Limit must be between 1 and 100.")
+
+    records = get_recent_evaluations(limit=100, db_path=db_path)
+    query_terms = set(query.lower().split())
+    matches = []
+
+    for record in records:
+        if record["decision"] != "fail":
+            continue
+
+        failed_criteria = [
+            criterion
+            for criterion in record["criteria"]
+            if not criterion.get("passed", False)
+        ]
+
+        searchable_text = " ".join(
+            [
+                record["task_description"],
+                record["generated_output"],
+                " ".join(
+                    f'{criterion.get("name", "")} '
+                    f'{criterion.get("explanation", "")}'
+                    for criterion in failed_criteria
+                ),
+            ]
+        ).lower()
+
+        record_terms = set(searchable_text.split())
+        overlap = query_terms & record_terms
+
+        if not overlap:
+            continue
+
+        result = dict(record)
+        result["failed_criteria"] = failed_criteria
+        result["relevance_score"] = (
+            len(overlap) / len(query_terms)
+        )
+        matches.append(result)
+
+    matches.sort(
+        key=lambda record: (
+            record["relevance_score"],
+            record["id"],
+        ),
+        reverse=True,
+    )
+
+    return matches[:limit]

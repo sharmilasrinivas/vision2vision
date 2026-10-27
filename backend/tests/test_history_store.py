@@ -7,6 +7,7 @@ import pytest
 from backend.app.history_store import (
     get_recent_evaluations,
     initialize_history_db,
+    retrieve_similar_failures,
     save_evaluation,
 )
 
@@ -134,3 +135,89 @@ def test_get_recent_evaluations_returns_empty_for_missing_db(tmp_path):
 def test_get_recent_evaluations_rejects_invalid_limit():
     with pytest.raises(ValueError, match="Limit must be"):
         get_recent_evaluations(limit=0)
+
+
+def test_retrieve_similar_failures_finds_relevant_failure(tmp_path):
+    db_path = tmp_path / "retrieval.db"
+
+    save_evaluation(
+        task_id="failure-001",
+        task_description="Explain photosynthesis and sunlight.",
+        generated_output="Plants make food.",
+        criteria=[
+            {
+                "name": "Mentions sunlight",
+                "passed": False,
+                "explanation": "The answer omitted sunlight.",
+            }
+        ],
+        score=0.0,
+        decision="fail",
+        db_path=db_path,
+    )
+
+    save_evaluation(
+        task_id="success-001",
+        task_description="Explain photosynthesis and sunlight.",
+        generated_output="Plants use sunlight.",
+        criteria=[
+            {
+                "name": "Mentions sunlight",
+                "passed": True,
+                "explanation": "Sunlight is mentioned.",
+            }
+        ],
+        score=1.0,
+        decision="pass",
+        db_path=db_path,
+    )
+
+    results = retrieve_similar_failures(
+        query="photosynthesis sunlight",
+        db_path=db_path,
+    )
+
+    assert len(results) == 1
+    assert results[0]["task_id"] == "failure-001"
+    assert results[0]["failed_criteria"][0]["name"] == "Mentions sunlight"
+    assert results[0]["relevance_score"] > 0
+
+
+def test_retrieve_similar_failures_returns_empty_for_no_match(tmp_path):
+    db_path = tmp_path / "retrieval.db"
+
+    save_evaluation(
+        task_id="failure-002",
+        task_description="Explain photosynthesis.",
+        generated_output="Plants make food.",
+        criteria=[
+            {
+                "name": "Mentions sunlight",
+                "passed": False,
+                "explanation": "Sunlight was omitted.",
+            }
+        ],
+        score=0.0,
+        decision="fail",
+        db_path=db_path,
+    )
+
+    results = retrieve_similar_failures(
+        query="database indexing",
+        db_path=db_path,
+    )
+
+    assert results == []
+
+
+def test_retrieve_similar_failures_rejects_empty_query():
+    with pytest.raises(ValueError, match="Query must not be empty"):
+        retrieve_similar_failures(query="   ")
+
+
+def test_retrieve_similar_failures_rejects_invalid_limit():
+    with pytest.raises(ValueError, match="Limit must be"):
+        retrieve_similar_failures(
+            query="photosynthesis",
+            limit=0,
+        )
