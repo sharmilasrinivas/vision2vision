@@ -4,6 +4,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from backend.app.evaluation import EvaluationCriterion, evaluate_criteria
+from backend.app.llm_evaluator import (
+    LLMEvaluationRequest,
+    evaluate_text_output,
+)
 from backend.app.ollama_client import generate_chat_response
 
 app = FastAPI(
@@ -78,5 +82,23 @@ def evaluate(request: EvaluateRequest):
         criteria=request.criteria,
         summary=request.summary,
     )
+
+
+
+@app.post("/evaluate-llm")
+async def evaluate_llm(request: LLMEvaluationRequest):
+    """Evaluate generated text using the local LLM."""
+    try:
+        return await evaluate_text_output(request)
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="Unable to communicate with the local Ollama service.",
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=str(exc),
+        ) from exc
 
 
