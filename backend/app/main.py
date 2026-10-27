@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from backend.app.evaluation import EvaluationCriterion, evaluate_criteria
+from backend.app.history_store import get_recent_evaluations, save_evaluation
 from backend.app.llm_evaluator import (
     LLMEvaluationRequest,
     evaluate_text_output,
@@ -74,14 +75,29 @@ class EvaluateRequest(BaseModel):
     criteria: list[EvaluationCriterion] = Field(min_length=1)
 
 
+
 @app.post("/evaluate")
 def evaluate(request: EvaluateRequest):
-    """Evaluate supplied criteria and return a structured result."""
-    return evaluate_criteria(
+    """Evaluate supplied criteria and persist the result."""
+    result = evaluate_criteria(
         task_id=request.task_id,
         criteria=request.criteria,
         summary=request.summary,
     )
+
+    save_evaluation(
+        task_id=request.task_id,
+        task_description=request.summary,
+        generated_output=request.summary,
+        criteria=[
+            criterion.model_dump()
+            for criterion in result.criteria
+        ],
+        score=result.score,
+        decision=result.decision,
+    )
+
+    return result
 
 
 
@@ -101,4 +117,9 @@ async def evaluate_llm(request: LLMEvaluationRequest):
             detail=str(exc),
         ) from exc
 
+
+@app.get("/history")
+def evaluation_history(limit: int = 10):
+    """Return recent saved evaluations."""
+    return get_recent_evaluations(limit=limit)
 
