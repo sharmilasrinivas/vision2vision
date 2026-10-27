@@ -101,11 +101,27 @@ def evaluate(request: EvaluateRequest):
 
 
 
+
 @app.post("/evaluate-llm")
 async def evaluate_llm(request: LLMEvaluationRequest):
-    """Evaluate generated text using the local LLM."""
+    """Evaluate generated text using the local LLM and save the result."""
     try:
-        return await evaluate_text_output(request)
+        result = await evaluate_text_output(request)
+
+        save_evaluation(
+            task_id=request.task_id,
+            task_description=request.task_description,
+            generated_output=request.generated_output,
+            criteria=[
+                criterion.model_dump()
+                for criterion in result.criteria
+            ],
+            score=result.score,
+            decision=result.decision,
+        )
+
+        return result
+
     except httpx.HTTPError as exc:
         raise HTTPException(
             status_code=502,
@@ -116,6 +132,7 @@ async def evaluate_llm(request: LLMEvaluationRequest):
             status_code=502,
             detail=str(exc),
         ) from exc
+
 
 
 @app.get("/history")
