@@ -4,7 +4,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from backend.app.evaluation import EvaluationCriterion, evaluate_criteria
-from backend.app.history_store import get_recent_evaluations, save_evaluation
+from backend.app.history_store import (
+    get_recent_evaluations,
+    retrieve_similar_failures,
+    save_evaluation,
+)
 from backend.app.llm_evaluator import (
     LLMEvaluationRequest,
     evaluate_text_output,
@@ -75,6 +79,10 @@ class EvaluateRequest(BaseModel):
     criteria: list[EvaluationCriterion] = Field(min_length=1)
 
 
+class FailureRetrievalRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=2000)
+    limit: int = Field(default=5, ge=1, le=100)
+
 
 @app.post("/evaluate")
 def evaluate(request: EvaluateRequest):
@@ -134,9 +142,24 @@ async def evaluate_llm(request: LLMEvaluationRequest):
         ) from exc
 
 
+@app.post("/retrieve-failures")
+def retrieve_failures(request: FailureRetrievalRequest):
+    """Retrieve relevant past failed evaluations."""
+    try:
+        return retrieve_similar_failures(
+            query=request.query,
+            limit=request.limit,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=str(exc),
+        ) from exc
+
 
 @app.get("/history")
 def evaluation_history(limit: int = 10):
     """Return recent saved evaluations."""
     return get_recent_evaluations(limit=limit)
+
 
