@@ -1,0 +1,53 @@
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Generated AI artifacts
+models/
+model_cache/
+hf_cache/
+outputs/
+generated_images/
+generated_audio/
+uploads/
+
+# Local databases and vector stores
+*.db
+*.sqlite
+*.sqlite3
+chroma_db/
+mlruns/
+
+# Data and experiments
+data/raw/
+data/processed/
+experiments/results/
+*.wav
+*.mp3
+*.mp4
+
+# Frontend
+node_modules/
+dist/
+coverage/
+
+# Editors and operating systems
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
