@@ -1,6 +1,9 @@
-
-from fastapi import FastAPI
+import httpx
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
+
+from backend.app.ollama_client import generate_chat_response
 
 app = FastAPI(
     title="Voice2Vision Guardian API",
@@ -40,3 +43,22 @@ def health_check() -> dict[str, str]:
         "status": "healthy",
         "service": "backend",
     }
+
+
+class ChatRequest(BaseModel):
+    prompt: str = Field(min_length=1, max_length=4000)
+
+
+@app.post("/chat")
+async def chat(request: ChatRequest) -> dict[str, str]:
+    """Generate a response using the local Ollama model."""
+    try:
+        answer = await generate_chat_response(request.prompt)
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="Unable to communicate with the local Ollama service.",
+        ) from exc
+
+    return {"response": answer}
+
